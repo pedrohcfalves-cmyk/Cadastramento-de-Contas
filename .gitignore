@@ -1,9 +1,38 @@
+# Python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
+.pytest_cache/
 .vscode/
+
+# Dados de pessoas (CPF, nome, banco, agência, conta): nunca versionar
 *.xlsx
+*.xlsm
 *.xls
 *.csv
+*.ods
+*.jsonl
+*.txt
+!requirements*.txt
+!empacotar/versao.txt
+!sigef/interface/fontes/OFL.txt
+!LICENSE.txt
+
+# Configuração e segredos de cada computador (o .exemplo continua versionado)
+CadastroSIGEF.ini
+.env
+.env.*
+*.pem
+*.key
+
+# Gerados: registros, relatórios, executável e partes do envio
 logs/
+*.log
+Relatorios*/
+relatorio.html
+build/
+dist/
+_build/
+*.exe
+exe.part*

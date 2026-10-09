@@ -16,13 +16,19 @@ TIPO_CREDOR = "10"
 # Mensagem de retorno do SIGEF
 SELETOR_MENSAGEM = "td[class^='SIGEFMensagem']"
 JA_CADASTRADO = "JACADASTRAD"  # texto normalizado de "já cadastrado(a)"
-PREFIXO = {"OK": "", "JA": "JÁ CADASTRADO: ", "ERRO": "ERRO: "}
+PREFIXO = {"OK": "", "JA": "JÁ CADASTRADO: ", "ERRO": "ERRO: ", "PULADO": "PULADO "}
 
 # ------------------------------------------------------------- Navegador
 TIMEOUT = 10_000  # 10s para localizar qualquer elemento
 PORTA_DEBUG = 9222
 CDP_URL = f"http://127.0.0.1:{PORTA_DEBUG}"
 ESPERA_CHROME = 45  # segundos aguardando a porta de depuração responder
+
+# Navegadores aceitos, em ordem de preferência: (nome, pasta, executável)
+NAVEGADORES = (
+    ("Google Chrome", ("Google", "Chrome", "Application"), "chrome.exe"),
+    ("Microsoft Edge", ("Microsoft", "Edge", "Application"), "msedge.exe"),
+)
 
 # --------------------------------------------------------------- Arquivos
 PASTA_DADOS = Path.home() / ".sigef-automacao"

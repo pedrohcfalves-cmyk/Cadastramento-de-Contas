@@ -1,0 +1,4 @@
+# Para gerar o executável e rodar os testes (não é preciso para usar o programa)
+-r requirements.txt
+pyinstaller>=6.10
+pytest>=8

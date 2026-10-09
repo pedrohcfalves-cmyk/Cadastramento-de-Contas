@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from enum import Enum
 
 from .bancos import resolver_banco
 
@@ -15,6 +16,9 @@ ROTULOS = {
 
 SOMENTE_DIGITOS = ("cpf", "agencia", "conta")
 
+# Agência e conta podem terminar em "X" (dígito verificador de alguns bancos)
+CAMPOS_COM_X = ("agencia", "conta")
+
 TAMANHO_CPF = 11
 
 
@@ -24,6 +28,15 @@ class ReiniciarLote(Exception):
 
 class PularLote(Exception):
     """Usuário optou por descartar este lote/linha."""
+
+
+class Resposta(Enum):
+    """Respostas possíveis na conferência manual de uma ação."""
+
+    SIM = "s"
+    SIM_TODOS = "t"  # confirma e não pergunta mais neste lote
+    CORRIGIR = "n"
+    PULAR = "p"
 
 
 @dataclass
@@ -47,6 +60,20 @@ class Lote:
         return len(self.cpf) == TAMANHO_CPF
 
 
+def cpf_confere(cpf: str) -> bool:
+    """Confere os dígitos verificadores (ajuda a pegar erro de digitação)."""
+    if len(cpf) != TAMANHO_CPF or not cpf.isdigit() or cpf == cpf[0] * TAMANHO_CPF:
+        return False
+
+    for tamanho in (9, 10):
+        soma = sum(int(digito) * peso for digito, peso in zip(cpf, range(tamanho + 1, 1, -1)))
+
+        if soma * 10 % 11 % 10 != int(cpf[tamanho]):
+            return False
+
+    return True
+
+
 def limpar(campo: str, valor: str) -> str:
     """Normaliza o valor de um campo conforme a sua natureza."""
     valor = (valor or "").strip()
@@ -56,6 +83,11 @@ def limpar(campo: str, valor: str) -> str:
 
     if campo not in SOMENTE_DIGITOS:
         return valor
+
+    if campo in CAMPOS_COM_X:
+        # Pontos, traços e espaços saem; o "X" fica (em maiúscula) junto dos números
+        valor = re.sub(r"[^0-9X]", "", valor.upper())
+        return valor if any(c.isdigit() for c in valor) else ""
 
     valor = re.sub(r"\D", "", valor)
 
@@ -86,3 +118,35 @@ def lote_de_linha(linha: str) -> Lote:
         raise ValueError(f"CPF deve ter {TAMANHO_CPF} dígitos")
 
     return lote
+
+
+def lotes_de_texto(texto: str) -> tuple:
+    """Lê várias linhas; devolve (lotes, [(nº da linha, motivo)] das ignoradas)."""
+    lotes, ignoradas = [], []
+
+    for numero, linha in enumerate(texto.splitlines(), 1):
+        linha = linha.strip()
+
+        # Linha vazia ou cabeçalho do arquivo
+        if not linha or linha.lower().startswith("cpf"):
+            continue
+
+        try:
+            lotes.append(lote_de_linha(linha))
+        except ValueError as erro:
+            ignoradas.append((numero, str(erro)))
+
+    return lotes, ignoradas
+
+
+def ler_arquivo_lotes(caminho: str) -> tuple:
+    """Lê um .csv/.txt em UTF-8 ou no padrão do Excel brasileiro (cp1252)."""
+    with open(caminho, "rb") as arquivo:
+        bruto = arquivo.read()
+
+    try:
+        texto = bruto.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        texto = bruto.decode("cp1252")
+
+    return lotes_de_texto(texto)

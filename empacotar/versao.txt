@@ -1,0 +1,27 @@
+# Propriedades do arquivo exibidas pelo Windows (botão direito > Propriedades > Detalhes)
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(2, 2, 1, 0),
+    prodvers=(2, 2, 1, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable('041604B0', [
+        StringStruct('FileDescription', 'Cadastro de Credores no SIGEF'),
+        StringStruct('FileVersion', '2.2.1'),
+        StringStruct('InternalName', 'CadastroSIGEF'),
+        StringStruct('LegalCopyright', 'Licença MIT'),
+        StringStruct('OriginalFilename', 'CadastroSIGEF.exe'),
+        StringStruct('ProductName', 'Cadastro de Credores no SIGEF'),
+        StringStruct('ProductVersion', '2.2.1')
+      ])
+    ]),
+    VarFileInfo([VarStruct('Translation', [0x0416, 1200])])
+  ]
+)

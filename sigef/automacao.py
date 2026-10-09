@@ -1,21 +1,62 @@
 """Fluxo da automação no SIGEF: credor e domicílio bancário."""
 
 import re
+import time
+from typing import Callable, Optional
 
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
 
 from .bancos import normalizar
 from .config import (
+    DOMINIO,
     JA_CADASTRADO,
     SELETOR_MENSAGEM,
     TIPO_CREDOR,
     URL_INCLUIR_DOMICILIO,
     URL_MANTER_CREDOR,
-    DOMINIO,
 )
-from .console import Confirmador
+from .estatisticas import EXISTENTE, NOVO
 from .log import logger
-from .modelos import Lote
+from .modelos import Lote, PularLote, ReiniciarLote, Resposta
+
+# Ações que podem ser conferidas manualmente antes do clique
+INCLUIR_CREDOR = "Incluir novo credor"
+CONFIRMAR_DOMICILIO = "Confirmar inclusão do domicílio bancário"
+
+# perguntar(lote, ação, editável) -> Resposta
+Perguntar = Callable[[Lote, str, bool], Resposta]
+
+
+class Confirmador:
+    """Acompanha um lote: confere os dados antes do clique (se houver `perguntar`).
+
+    Também anota, para as estatísticas, o caminho seguido (credor novo ou já
+    existente) e quanto tempo a pessoa levou respondendo às conferências.
+    """
+
+    def __init__(self, perguntar: Optional[Perguntar] = None, editavel: bool = True):
+        self.perguntar = perguntar
+        self.editavel = editavel
+        self.lote_liberado = False
+        self.caminho = ""
+        self.espera = 0.0
+
+    def clicar(self, locator, lote: Lote, acao: str) -> None:
+        if self.perguntar and not self.lote_liberado:
+            inicio = time.perf_counter()
+            try:
+                resposta = self.perguntar(lote, acao, self.editavel)
+            finally:
+                self.espera += time.perf_counter() - inicio
+
+            if resposta is Resposta.SIM_TODOS:
+                self.lote_liberado = True
+            elif resposta is Resposta.CORRIGIR and self.editavel:
+                raise ReiniciarLote
+            elif resposta is Resposta.PULAR:
+                raise PularLote
+
+        locator.click()
 
 
 def fechar_popups(context, page: Page) -> None:
@@ -26,6 +67,15 @@ def fechar_popups(context, page: Page) -> None:
                 aba.close()
             except Exception:
                 pass
+
+
+def navegador_fechado(page: Page) -> bool:
+    """True quando a aba ou o navegador foram fechados durante a execução."""
+    try:
+        browser = page.context.browser
+        return page.is_closed() or (browser is not None and not browser.is_connected())
+    except Exception:
+        return True
 
 
 def esperar_mensagem(page: Page):
@@ -82,9 +132,7 @@ def incluir_domicilio(page: Page, lote: Lote, confirmador: Confirmador) -> tuple
     page.locator("#txtAgBancaria_SIGEFPesquisa").press_sequentially(lote.agencia)
     page.locator("#txtContaBancaria").press_sequentially(lote.conta)
     page.locator("#txtNmContaBancaria").fill(lote.nome)
-    confirmador.clicar(
-        page.locator("#btnConfirmar"), lote, "Confirmar inclusão do domicílio bancário"
-    )
+    confirmador.clicar(page.locator("#btnConfirmar"), lote, CONFIRMAR_DOMICILIO)
 
     return ler_mensagem(page)
 
@@ -110,20 +158,20 @@ def processar_lote(page: Page, lote: Lote, confirmador: Confirmador) -> tuple:
 
     if cadastro.count() == 0:
         # ---------- CAMINHO 1: credor inexistente, cadastrar ----------
+        confirmador.caminho = NOVO
         nova_page.close()
         page.bring_to_front()
         page.locator("#txtCPF").fill(lote.cpf)
         page.locator("#btnReceitaFederal").click()
         page.locator("#txtNmCredor").fill(lote.nome)
-        confirmador.clicar(
-            page.locator("#btnManutencao_BtnIncluir"), lote, "Incluir novo credor"
-        )
+        confirmador.clicar(page.locator("#btnManutencao_BtnIncluir"), lote, INCLUIR_CREDOR)
 
         # Aguarda o retorno do SIGEF antes de seguir, seja sucesso ou erro
         esperar_mensagem(page)
 
     else:
         # ---------- CAMINHO 2: credor já cadastrado ----------
+        confirmador.caminho = EXISTENTE
         cadastro.first.click()
         page.bring_to_front()
 
@@ -134,8 +182,8 @@ def processar_lote(page: Page, lote: Lote, confirmador: Confirmador) -> tuple:
 
 
 def descrever_erro(erro: Exception) -> str:
-    """Mensagem curta de uma falha, pronta para a planilha."""
+    """Motivo curto de uma falha, pronto para a planilha (sem o prefixo ERRO)."""
     if isinstance(erro, PlaywrightTimeout):
-        return "ERRO: timeout - elemento não encontrado"
+        return "timeout - elemento não encontrado"
 
-    return "ERRO: " + str(erro).splitlines()[0]
+    return (str(erro).splitlines() or [type(erro).__name__])[0]

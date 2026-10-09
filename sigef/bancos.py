@@ -35,6 +35,23 @@ BANCOS = {
 # Apelidos maiores primeiro, para "Banco de Brasília" não casar com "Brasil"
 APELIDOS = sorted(BANCOS, key=len, reverse=True)
 
+# Nome de exibição de cada código (para o usuário conferir o que digitou)
+NOMES = {
+    "001": "Banco do Brasil", "003": "Banco da Amazônia", "004": "Banco do Nordeste",
+    "021": "Banestes", "033": "Santander", "041": "Banrisul", "070": "BRB",
+    "077": "Inter", "104": "Caixa", "197": "Stone", "208": "BTG Pactual",
+    "212": "Original", "237": "Bradesco", "260": "Nubank", "290": "PagBank",
+    "323": "Mercado Pago", "336": "C6 Bank", "341": "Itaú", "380": "PicPay",
+    "403": "Cora", "422": "Safra", "655": "BV", "735": "Neon", "748": "Sicredi",
+    "756": "Sicoob",
+}
+
+
+def descrever_banco(codigo: str) -> str:
+    """'001' -> '001 - Banco do Brasil' (só o código quando o banco não está na tabela)."""
+    nome = NOMES.get(codigo)
+    return f"{codigo} - {nome}" if nome else codigo
+
 
 def normalizar(texto: str) -> str:
     """Maiúsculas, sem acento e sem pontuação: 'C/C' -> 'CC', 'Itaú' -> 'ITAU'."""

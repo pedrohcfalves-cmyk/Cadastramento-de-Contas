@@ -1,0 +1,7 @@
+; Configuração opcional para a pesquisa de implantação em massa.
+; Renomeie para CadastroSIGEF.ini e coloque ao lado do CadastroSIGEF.exe.
+; Cada computador passa a gravar os seus dados de uso nesta pasta da rede,
+; ao final de cada sessão (um arquivo por computador e usuário).
+
+[pesquisa]
+pasta = \\servidor\compartilhado\pesquisa-cadastro-sigef
