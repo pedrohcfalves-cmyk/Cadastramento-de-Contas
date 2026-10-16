@@ -8,8 +8,13 @@ from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
 
 from .bancos import normalizar
 from .config import (
+    ANCORA_DOMICILIO,
+    ANCORA_MANTER_CREDOR,
+    DELAY_DIGITACAO,
     DOMINIO,
+    ESPERA_MENSAGEM,
     JA_CADASTRADO,
+    SELETOR_CREDOR,
     SELETOR_MENSAGEM,
     TIPO_CREDOR,
     URL_INCLUIR_DOMICILIO,
@@ -18,6 +23,7 @@ from .config import (
 from .estatisticas import EXISTENTE, NOVO
 from .log import logger
 from .modelos import Lote, PularLote, ReiniciarLote, Resposta
+from .navegador import esperar_carregar, esperar_elemento, ir_para
 
 # Ações que podem ser conferidas manualmente antes do clique
 INCLUIR_CREDOR = "Incluir novo credor"
@@ -78,12 +84,15 @@ def navegador_fechado(page: Page) -> bool:
         return True
 
 
-def esperar_mensagem(page: Page):
-    """Espera a mensagem do SIGEF aparecer, qualquer que seja o resultado."""
+def esperar_mensagem(page: Page, timeout: Optional[int] = None):
+    """Espera a mensagem do SIGEF aparecer, qualquer que seja o resultado.
+
+    Sem `timeout`, vale o prazo padrão do navegador.
+    """
     mensagem = page.locator(SELETOR_MENSAGEM).first
 
     try:
-        mensagem.wait_for(state="visible")
+        mensagem.wait_for(state="visible", timeout=timeout)
     except PlaywrightTimeout:
         return None
 
@@ -110,27 +119,32 @@ def ler_mensagem(page: Page) -> tuple:
     return "ERRO", texto or classe
 
 
+def digitar(page: Page, seletor: str, texto: str) -> None:
+    """Digita devagar num campo que pesquisa sozinho enquanto recebe as teclas."""
+    esperar_elemento(page, seletor).press_sequentially(texto, delay=DELAY_DIGITACAO)
+
+
 def incluir_domicilio(page: Page, lote: Lote, confirmador: Confirmador) -> tuple:
     """Cadastra o domicílio bancário de um credor já existente."""
-    page.goto(URL_INCLUIR_DOMICILIO)
-    page.wait_for_load_state("networkidle")
+    ir_para(page, URL_INCLUIR_DOMICILIO, ANCORA_DOMICILIO)
 
     with page.expect_popup() as popup_info:
-        page.locator("#txtCdCredor_BtnPesquisa").click()
+        page.locator(ANCORA_DOMICILIO).click()
 
-    nova_page = popup_info.value
-    nova_page.wait_for_load_state()
+    pesquisa = popup_info.value
+    esperar_carregar(pesquisa)
 
-    nova_page.locator("#btnCPF").click()
-    nova_page.locator("#txtNuCpf").fill(lote.cpf)
-    nova_page.locator("#btnConfirmar").click()
+    esperar_elemento(pesquisa, "#btnCPF").click()
+    esperar_elemento(pesquisa, "#txtNuCpf").fill(lote.cpf)
+    pesquisa.locator("#btnConfirmar").click()
+    esperar_carregar(pesquisa)
 
-    nova_page.locator("#dtgCredor td[onclick]").first.click()
+    esperar_elemento(pesquisa, SELETOR_CREDOR).click()
 
     page.bring_to_front()
-    page.locator("#txtBanco_SIGEFPesquisa").press_sequentially(lote.banco)
-    page.locator("#txtAgBancaria_SIGEFPesquisa").press_sequentially(lote.agencia)
-    page.locator("#txtContaBancaria").press_sequentially(lote.conta)
+    digitar(page, "#txtBanco_SIGEFPesquisa", lote.banco)
+    digitar(page, "#txtAgBancaria_SIGEFPesquisa", lote.agencia)
+    digitar(page, "#txtContaBancaria", lote.conta)
     page.locator("#txtNmContaBancaria").fill(lote.nome)
     confirmador.clicar(page.locator("#btnConfirmar"), lote, CONFIRMAR_DOMICILIO)
 
@@ -140,34 +154,35 @@ def incluir_domicilio(page: Page, lote: Lote, confirmador: Confirmador) -> tuple
 def processar_lote(page: Page, lote: Lote, confirmador: Confirmador) -> tuple:
     """Executa um lote completo e devolve ("OK" | "JA" | "ERRO", mensagem)."""
     # Volta sempre para a tela inicial do loop
-    page.goto(URL_MANTER_CREDOR)
-    page.wait_for_load_state("networkidle")
+    ir_para(page, URL_MANTER_CREDOR, ANCORA_MANTER_CREDOR)
 
-    page.locator("#cmbTipoCredor").select_option(TIPO_CREDOR)
+    page.locator(ANCORA_MANTER_CREDOR).select_option(TIPO_CREDOR)
 
     with page.expect_popup() as popup_info:
         page.locator("#btnManutencao_BtnListar").click()
 
-    nova_page = popup_info.value
-    nova_page.wait_for_load_state()
+    pesquisa = popup_info.value
+    esperar_carregar(pesquisa)
 
-    nova_page.locator("#txtCPF").fill(lote.cpf)
-    nova_page.locator("#btnConfirmar").click()
+    esperar_elemento(pesquisa, "#txtCPF").fill(lote.cpf)
+    pesquisa.locator("#btnConfirmar").click()
+    esperar_carregar(pesquisa)  # sem isso a contagem abaixo leria a tela anterior
 
-    cadastro = nova_page.locator("#dtgCredor td[onclick]")
+    cadastro = pesquisa.locator(SELETOR_CREDOR)
 
     if cadastro.count() == 0:
         # ---------- CAMINHO 1: credor inexistente, cadastrar ----------
         confirmador.caminho = NOVO
-        nova_page.close()
+        pesquisa.close()
         page.bring_to_front()
-        page.locator("#txtCPF").fill(lote.cpf)
+        esperar_elemento(page, "#txtCPF").fill(lote.cpf)
         page.locator("#btnReceitaFederal").click()
-        page.locator("#txtNmCredor").fill(lote.nome)
+        esperar_carregar(page)  # a consulta à Receita recarrega a tela
+        esperar_elemento(page, "#txtNmCredor").fill(lote.nome)
         confirmador.clicar(page.locator("#btnManutencao_BtnIncluir"), lote, INCLUIR_CREDOR)
 
-        # Aguarda o retorno do SIGEF antes de seguir, seja sucesso ou erro
-        esperar_mensagem(page)
+        # O SIGEF demora para responder: espera o aviso de sucesso ou de erro
+        esperar_mensagem(page, ESPERA_MENSAGEM)
 
     else:
         # ---------- CAMINHO 2: credor já cadastrado ----------

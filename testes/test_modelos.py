@@ -18,20 +18,24 @@ def test_resolver_banco(valor, codigo):
 def test_limpar_campos():
     assert limpar("cpf", "123.456.789-09") == "12345678909"
     assert limpar("cpf", "1234567890") == "01234567890"  # zero comido pelo Excel
-    assert limpar("conta", "12.345-6") == "123456"
+    assert limpar("conta", "12.345-6") == "12.345-6"
     assert limpar("nome", "  Maria  ") == "Maria"
 
 
 @pytest.mark.parametrize("campo, valor, esperado", [
-    ("conta", "12345-X", "12345X"),
-    ("conta", "12.345-x", "12345X"),   # minúscula e pontuação
-    ("conta", " 1234 5 X ", "12345X"),
-    ("agencia", "1234-X", "1234X"),
+    ("conta", "12345-X", "12345-X"),
+    ("conta", "12.345-x", "12.345-X"),  # minúscula vira maiúscula; ponto e traço ficam
+    ("conta", " 1234 5-6 ", "12345-6"),  # espaços saem
+    ("conta", "0012345-P", "0012345-P"),  # dígito verificador com qualquer letra
+    ("conta", "ABC.12-3", "ABC.12-3"),
+    ("agencia", "1234-X", "1234-X"),
+    ("agencia", "3456-7", "3456-7"),
     ("agencia", "0012", "0012"),
-    ("conta", "EXTERIOR", ""),         # sem número nenhum não é conta
-    ("conta", "X", ""),
+    ("conta", "12/345_6", "123456"),  # símbolos que não são traço nem ponto saem
+    ("conta", "X", "X"),
+    ("conta", "", ""),
 ])
-def test_agencia_e_conta_mantem_x(campo, valor, esperado):
+def test_agencia_e_conta_aceitam_letras_numeros_traco_e_ponto(campo, valor, esperado):
     assert limpar(campo, valor) == esperado
 
 
@@ -40,14 +44,14 @@ def test_cpf_continua_so_digitos():
 
 
 def test_lote_de_linha_com_x():
-    lote = lote_de_linha("529.982.247-25,Maria,001,1234-X,56789-X")
-    assert (lote.agencia, lote.conta) == ("1234X", "56789X")
+    lote = lote_de_linha("529.982.247-25,Maria,001,1234-X,56.789-x")
+    assert (lote.agencia, lote.conta) == ("1234-X", "56.789-X")
 
 
 def test_lote_de_linha_separadores():
     esperado = Lote("52998224725", "Maria", "001", "1234", "56789")
 
-    for linha in ("529.982.247-25,Maria,BB,1234,56789-",
+    for linha in ("529.982.247-25,Maria,BB,1234, 56789 ",
                   "52998224725;Maria;001;1234;56789",
                   "52998224725\tMaria\t1\t1234\t56789"):
         assert lote_de_linha(linha) == esperado

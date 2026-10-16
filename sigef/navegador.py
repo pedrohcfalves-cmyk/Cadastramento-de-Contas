@@ -6,16 +6,28 @@ import subprocess
 import time
 import urllib.request
 
+from playwright.sync_api import Error as ErroPlaywright, TimeoutError as PlaywrightTimeout
+
 from .config import (
+    ANCORA_MANTER_CREDOR,
     CDP_URL,
     DOMINIO,
+    ESPERA_CARREGAR,
     ESPERA_CHROME,
     NAVEGADORES,
     PERFIL_CHROME,
     PORTA_DEBUG,
+    TENTATIVAS_NAVEGACAO,
     TIMEOUT,
     URL_MANTER_CREDOR,
     URL_SIGEF,
+)
+from .log import logger
+
+# Falhas que indicam apenas uma corrida entre navegações: vale repetir
+CORRIDAS = (
+    "interrupted by another navigation",
+    "navigation failed because page was reloaded",
 )
 
 
@@ -128,6 +140,55 @@ def abrir_navegador_debug() -> str:
     return nome
 
 
+def esperar_carregar(page, timeout: int = ESPERA_CARREGAR) -> None:
+    """Espera a tela assentar: DOM pronto e rede em silêncio.
+
+    O estouro do prazo não é erro: o SIGEF às vezes deixa requisições
+    penduradas, e seguir com o DOM pronto é melhor do que abortar o lote.
+    """
+    for estado in ("domcontentloaded", "networkidle"):
+        try:
+            page.wait_for_load_state(estado, timeout=timeout)
+        except PlaywrightTimeout:
+            return
+
+
+def esperar_elemento(page, seletor: str, timeout: int = ESPERA_CARREGAR):
+    """Espera o elemento ficar visível e o devolve pronto para uso."""
+    alvo = page.locator(seletor).first
+    alvo.wait_for(state="visible", timeout=timeout)
+    return alvo
+
+
+def ir_para(page, url: str, ancora: str = "") -> None:
+    """Abre uma URL sem atropelar a navegação anterior.
+
+    Vários cliques do SIGEF (escolher o credor no pop-up, por exemplo) só
+    disparam o postback depois de devolver o controle; se o `goto` cair no meio
+    dele, o Playwright aborta com "interrupted by another navigation". Esperar a
+    tela assentar evita a corrida e, se ela acontecer mesmo assim, a navegação é
+    repetida. Com `ancora`, só retorna quando aquele elemento estiver visível.
+    """
+    for tentativa in range(1, TENTATIVAS_NAVEGACAO + 1):
+        esperar_carregar(page)
+
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=ESPERA_CARREGAR)
+            break
+        except ErroPlaywright as erro:
+            texto = str(erro).lower()
+
+            if tentativa == TENTATIVAS_NAVEGACAO or not any(c in texto for c in CORRIDAS):
+                raise
+
+            logger.info("navegação interrompida por outra; repetindo %s", url)
+
+    if ancora:
+        esperar_elemento(page, ancora)
+    else:
+        esperar_carregar(page)
+
+
 class Navegador:
     """Conexão do Playwright com o navegador do usuário (o navegador nunca é fechado)."""
 
@@ -169,9 +230,8 @@ class Navegador:
 
     def logado(self) -> bool:
         """Confere o login abrindo a tela de credores (só abre se a sessão for válida)."""
-        self.page.goto(URL_MANTER_CREDOR)
-        self.page.wait_for_load_state("networkidle")
-        return self.page.locator("#cmbTipoCredor").count() > 0
+        ir_para(self.page, URL_MANTER_CREDOR)
+        return self.page.locator(ANCORA_MANTER_CREDOR).count() > 0
 
     def garantir(self) -> None:
         """Levanta ErroNavegador se o navegador foi fechado desde o login."""

@@ -364,19 +364,46 @@ def _guardar(sessao: estatisticas.Sessao) -> None:
               f"   |   Economia estimada: {estatisticas.formatar_duracao(economia)}")
 
 
-def modo_lotes(navegador: Navegador) -> None:
-    lotes = coletar_lotes()
+def _rodar(modo: str, manual: bool, executar) -> None:
+    """Executa com estatística e, ao final, oferece refazer só os itens com erro.
 
-    if lotes:
-        manual = escolher_modo_manual()
-        sessao = _nova_sessao("lotes", manual)
+    `executar(sessao, falhas)` recebe None na primeira vez e, nas seguintes, as
+    falhas [(chave, Lote)] da execução anterior, que ficam só na memória.
+    """
+    falhas = None
+
+    while True:
+        sessao = _nova_sessao(modo, manual)
 
         try:
-            resumo = executar_lotes(navegador, lotes, RelatorTerminal("LOTE"),
-                                    perguntar if manual else None, sessao)
+            resumo = executar(sessao, falhas)
             mostrar_resumo(resumo)
         finally:
             _guardar(sessao)
+
+        falhas = resumo.falhas
+
+        if not falhas or not sim(f"\n{len(falhas)} com erro. Refazer só esses agora?", False):
+            return
+
+
+def modo_lotes(navegador: Navegador) -> None:
+    lotes = coletar_lotes()
+
+    if not lotes:
+        return
+
+    manual = escolher_modo_manual()
+    relator, conferir = RelatorTerminal("LOTE"), perguntar if manual else None
+
+    def executar(sessao, falhas):
+        if falhas is None:
+            return executar_lotes(navegador, lotes, relator, conferir, sessao)
+
+        numeros, refazer = zip(*falhas)
+        return executar_lotes(navegador, refazer, relator, conferir, sessao, numeros)
+
+    _rodar("lotes", manual, executar)
 
 
 def modo_planilha(navegador: Navegador) -> None:
@@ -390,12 +417,11 @@ def modo_planilha(navegador: Navegador) -> None:
     final = inteiro("Linha final", max(planilha.ultima_linha(colunas), primeira))
     resultado = escolher_coluna_resultado()
     manual = escolher_modo_manual()
-    sessao = _nova_sessao("planilha", manual)
+    relator, conferir = RelatorTerminal("LINHA"), perguntar if manual else None
 
-    try:
-        resumo = executar_planilha(navegador, planilha, colunas, primeira, final, resultado,
-                                   RelatorTerminal("LINHA"), perguntar if manual else None,
-                                   sessao)
-        mostrar_resumo(resumo)
-    finally:
-        _guardar(sessao)
+    def executar(sessao, falhas):
+        linhas = range(primeira, final + 1) if falhas is None else [l for l, _ in falhas]
+        return executar_planilha(navegador, planilha, colunas, linhas, resultado, relator,
+                                 conferir, sessao)
+
+    _rodar("planilha", manual, executar)

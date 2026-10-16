@@ -67,14 +67,34 @@ def test_lote_novo_repetido_e_invalido(navegador, servidor):
     assert len(navegador.context.pages) == 1
 
 
-def test_agencia_e_conta_com_x_chegam_ao_sigef(navegador, servidor):
-    lote = lote_de_linha("123.456.789-09,JOSE COM X,001,1234-X,56789-X")
+def test_agencia_e_conta_chegam_ao_sigef_como_escritas(navegador, servidor):
+    lote = lote_de_linha("123.456.789-09,JOSE COM DIGITO,001,1234-X,56.789-P")
     relator = RelatorTeste()
 
     executar_lotes(navegador, [lote], relator)
 
     assert relator.resultados[1][0] == "OK", relator.resultados
-    assert ("12345678909", "001", "1234X", "56789X") in servidor.estado.domicilios
+    assert ("12345678909", "001", "1234-X", "56.789-P") in servidor.estado.domicilios
+
+
+def test_refazer_so_os_lotes_com_erro(navegador, servidor):
+    lotes = [
+        Lote("52998224725", "MARIA DA SILVA", "001", "1234", "56789"),
+        Lote("00000000000", "CPF RECUSADO", "001", "1", "2-3"),
+    ]
+    resumo = executar_lotes(navegador, lotes, RelatorTeste())
+
+    assert resumo.falhas == [(2, lotes[1])]  # guardado na memória para refazer
+
+    lotes[1].cpf = "45317828791"  # corrigido antes de refazer
+    numeros, refazer = zip(*resumo.falhas)
+    relator = RelatorTeste()
+    novo = executar_lotes(navegador, refazer, relator, numeros=numeros)
+
+    assert relator.eventos == [("inicio", 2, 1, 1)]  # mantém o nº original
+    assert relator.resultados[2][0] == "OK", relator.resultados
+    assert novo.falhas == []
+    assert ("45317828791", "001", "1", "2-3") in servidor.estado.domicilios
 
 
 def test_confirmacao_manual(navegador, servidor):
@@ -129,7 +149,7 @@ def test_modo_planilha(navegador, servidor):
         [],
         [3, "EEEF C", "Ariquemes", "SEM BANCO", "71428793860", "Banco Imaginário", "1", "2"],
         [4, "EEEF D", "Cacoal", "FALTA CONTA", "71428793860", "Caixa", "1", ""],
-        [5, "EEEF E", "Vilhena", "JOSÉ SOUZA", "86288366757", "001", "3456", "771"],
+        [5, "EEEF E", "Vilhena", "JOSÉ SOUZA", "86288366757", "001", "3456", "77-1"],
     ])
     servidor.estado.cpfs_invalidos.add("00000000123")
     pasta = Pasta("servidores.xlsx", [aba])
@@ -143,7 +163,8 @@ def test_modo_planilha(navegador, servidor):
     assert final == 9
 
     relator = RelatorTeste()
-    resumo = executar_planilha(navegador, planilha, colunas, primeira, final, "J", relator)
+    resumo = executar_planilha(navegador, planilha, colunas, range(primeira, final + 1), "J",
+                               relator)
 
     assert aba.valor("J4") == "Operação realizada com sucesso."
     assert aba.valor("J5").startswith("ERRO:")          # CPF 00000000123 recusado
@@ -153,10 +174,33 @@ def test_modo_planilha(navegador, servidor):
     assert aba.valor("J9").startswith("JÁ CADASTRADO:")
     assert resumo.contagem == {"OK": 1, "JA": 1, "ERRO": 3, "PULADO": 0}
     assert pasta.salvamentos == 5
-    assert ("86288366757", "001", "3456", "771") in servidor.estado.domicilios
+    assert ("86288366757", "001", "3456", "77-1") in servidor.estado.domicilios
 
 
-def test_planilha_le_x_da_agencia_e_da_conta():
+def test_planilha_refaz_so_as_linhas_com_erro(navegador, servidor):
+    aba = Aba("Folha", [
+        ["CPF", "SERVIDOR", "BANCO", "AGÊNCIA", "C/C"],
+        ["15350946056", "ANA REFAZ", "001", "10", "20"],
+        ["15350946056", "ANA REFAZ", "104", "10", ""],
+    ])
+    planilha = Planilha.da_pasta(Excel(Pasta("r.xlsx", [aba])).Workbooks(1), "Folha")
+    colunas, primeira, _ = planilha.colunas_sugeridas()
+
+    resumo = executar_planilha(navegador, planilha, colunas, range(primeira, 4), "J",
+                               RelatorTeste())
+    assert [linha for linha, _ in resumo.falhas] == [3]
+
+    aba.dados[(3, 5)] = "0021-X"  # a pessoa completa a planilha
+    relator = RelatorTeste()
+    novo = executar_planilha(navegador, planilha, colunas, [3], "J", relator)
+
+    assert list(relator.resultados) == [3] and novo.falhas == []
+    assert aba.valor("J3") == "Operação realizada com sucesso."
+    assert aba.valor("J2") == "Operação realizada com sucesso."  # não foi refeita
+    assert ("15350946056", "104", "10", "0021-X") in servidor.estado.domicilios
+
+
+def test_planilha_le_digito_da_agencia_e_da_conta():
     aba = Aba("Folha", [
         ["CPF", "SERVIDOR", "BANCO", "AGÊNCIA", "C/C"],
         ["52998224725", "MARIA", "Banco do Brasil", "1234-X", "56789-x"],
@@ -166,7 +210,7 @@ def test_planilha_le_x_da_agencia_e_da_conta():
 
     lote, _ = planilha.ler_lote(2, colunas)
 
-    assert (lote.agencia, lote.conta) == ("1234X", "56789X")
+    assert (lote.agencia, lote.conta) == ("1234-X", "56789-X")
 
 
 def test_coluna_oculta_gera_aviso(navegador):
@@ -176,7 +220,7 @@ def test_coluna_oculta_gera_aviso(navegador):
     planilha = Planilha(Pasta("p.xlsx", [aba]), aba)
     colunas, primeira, _ = planilha.colunas_sugeridas()
     relator = RelatorTeste()
-    executar_planilha(navegador, planilha, colunas, primeira, 3, "J", relator)
+    executar_planilha(navegador, planilha, colunas, range(primeira, 4), "J", relator)
     assert any("oculta" in aviso for aviso in relator.avisos)
 
 

@@ -19,8 +19,8 @@ DICAS = {
     "cpf": "Pode digitar com ou sem pontos. Ex.: 529.982.247-25",
     "nome": "Nome completo, como está no documento.",
     "banco": "Código ou nome. Ex.: 001 ou Banco do Brasil",
-    "agencia": "Números da agência. Se terminar em X, digite o X.",
-    "conta": "Número da conta com o dígito. Pode ser X. Ex.: 12345-X",
+    "agencia": "Como está no cartão: números, letras, traço e ponto. Ex.: 1234-5",
+    "conta": "Número da conta com o dígito, como está escrito. Ex.: 12345-6 ou 12.345-X",
 }
 ROTULOS_SIMPLES = {
     "cpf": "CPF", "nome": "Nome", "banco": "Banco", "agencia": "Agência", "conta": "Conta",

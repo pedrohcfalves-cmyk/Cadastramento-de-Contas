@@ -2,6 +2,62 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2.3.0] - 2026-10-16
+
+### Adicionado
+- **Refazer as que deram erro**: quando o cadastro passa por todas as pessoas e
+  alguma dá erro, o passo 3 (Cadastrar) não pula mais direto para o resultado —
+  mostra quantas falharam e oferece **Refazer as que deram erro** ou **Ver o
+  resultado**. As pessoas com erro ficam guardadas só na memória enquanto o
+  programa estiver aberto (nada vai para o disco); o mesmo botão aparece na tela
+  de resultado e no passo 2 (De onde vêm os dados?). Cada repetição guarda só o
+  que voltou a falhar; quando nada mais falha, a memória é esvaziada.
+- Modo planilha: ao refazer, só as linhas que deram erro são lidas **de novo**
+  do Excel — o que for corrigido na planilha antes é aproveitado — e o
+  diagnóstico é regravado nelas.
+- Modo lote: ao refazer, a numeração original (Nº) é mantida.
+- Terminal: ao fim de cada execução com erro, pergunta se quer refazer só os
+  itens com erro.
+
+### Corrigido
+- **Erro no dígito da agência e da conta**: o traço e o ponto eram apagados
+  (`12345-6` ia ao SIGEF como `123456`) e só a letra X era aceita, então contas
+  com dígito separado ou com outra letra davam erro ou nem eram lidas. Agora
+  agência e conta aceitam **qualquer letra, número, `-` e `.`** e vão ao SIGEF
+  exatamente como foram escritas (letras em maiúscula). Só espaços e outros
+  símbolos são descartados. Vale para a planilha, a lista colada, o arquivo e o
+  formulário.
+
+### Alterado
+- `executar_planilha` recebe as `linhas` a processar (ex.: `range(primeira,
+  final + 1)`) em vez de `primeira` e `final`; `executar_lotes` aceita
+  `numeros` para manter a numeração.
+- `Resumo.falhas` guarda `(chave, Lote)` de cada item com erro.
+- O botão **Voltar** das estatísticas nunca reabre a tela de cadastro (o que
+  recomeçaria o cadastro).
+
+## [2.2.2] - 2026-10-09
+
+### Corrigido
+- `ERRO: Navigation to ... is interrupted by another navigation to ...`: a troca
+  de telas (tela do credor ↔ tela do domicílio bancário) só começa depois que a
+  tela anterior assenta, e a navegação é repetida até 3 vezes se o SIGEF
+  disparar um postback no meio do caminho.
+- A contagem do resultado da pesquisa no pop-up era feita antes de a tela de
+  resposta carregar: um credor existente podia ser tratado como inexistente em
+  conexões lentas.
+- Cada campo passou a ser esperado até ficar visível antes de receber dados, com
+  prazo de 30 s para a tela carregar (o prazo geral de 10 s continua valendo
+  para procurar elementos).
+
+### Alterado
+- Depois do botão **Incluir** da tela de credores, o aviso de sucesso ou de erro
+  é aguardado por até 60 s — antes o prazo de 10 s estourava com o SIGEF lento.
+- Banco, agência e conta são digitados com 20 ms entre teclas, dando tempo à
+  pesquisa automática desses campos.
+- `sigef/navegador.py` ganhou `ir_para`, `esperar_carregar` e
+  `esperar_elemento`, usados por toda a automação.
+
 ## [2.2.1] - 2026-10-09
 
 ### Corrigido

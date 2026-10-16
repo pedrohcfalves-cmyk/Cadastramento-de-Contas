@@ -2,7 +2,7 @@
 
 Percorre o caminho completo como uma pessoa faria: entrar, digitar pessoas,
 conferir cada uma, ver o resultado e depois rodar o modo planilha (com um Excel
-falso). Uso (Linux com Xvfb):
+falso), corrigindo na planilha a linha que deu erro e refazendo só ela. Uso (Linux com Xvfb):
 
     xvfb-run -s "-screen 0 1366x768x24" python testes/roteiro_janela.py pasta_capturas
 """
@@ -226,7 +226,10 @@ esperar(sempre, lambda: app.tela.conferencia.marcar("auto"))
 esperar(sempre, lambda: clicar("Começar o cadastro"))
 esperar(lambda: tela("TelaCadastro") and len(app.tela.resultados) >= 1,
         lambda: capturar("cadastrando"))
-esperar(lambda: tela("TelaResultado"), lambda: capturar("resultado_planilha"))
+
+
+def oferece_refazer():
+    return tela("TelaCadastro") and botao("Refazer as que deram erro (1)")
 
 
 def conferir_planilha():
@@ -236,9 +239,28 @@ def conferir_planilha():
     assert ABA.valor("J4") == "Operação realizada com sucesso."
     assert ABA.valor("J5") == "Operação realizada com sucesso."
     assert ABA.valor("J6") == "ERRO: campos vazios - Conta"
+    assert app.refazer["linhas"] == [6]
 
 
+def corrigir_planilha():
+    ABA.dados[(6, 8)] = "4567-X"  # a pessoa completa a conta que faltava na planilha
+
+
+# ---- terminou com erro: o passo 3 oferece refazer só a linha que falhou
+esperar(oferece_refazer, lambda: capturar("oferece_refazer"))
 esperar(sempre, conferir_planilha)
+esperar(sempre, corrigir_planilha)
+esperar(sempre, lambda: clicar("Refazer as que deram erro (1)"))
+esperar(lambda: tela("TelaResultado"), lambda: capturar("resultado_refazer"))
+
+
+def conferir_refazer():
+    print("J6 =", ABA.valor("J6"))
+    assert ABA.valor("J6") == "Operação realizada com sucesso."
+    assert app.refazer is None  # nada mais com erro: a memória fica vazia
+
+
+esperar(sempre, conferir_refazer)
 
 # ---- estatísticas
 esperar(sempre, lambda: clicar("Estatísticas"))
@@ -281,7 +303,7 @@ def conferir_estatisticas():
     ind = estatisticas.calcular(sessoes, manuais, estatisticas.ler_ajustes()["estimativa"])
     print("sessões:", len(sessoes), "manuais:", len(manuais), "feitos:", ind.feitos,
           "economia:", estatisticas.formatar_duracao(ind.segundos_economizados), flush=True)
-    assert len(sessoes) == 2 and len(manuais) == 1 and ind.feitos == 4
+    assert len(sessoes) == 3 and len(manuais) == 1 and ind.feitos == 5
     assert ind.media_manual["existente"] == 150
     pastas = list((TEMP / "relatorios").iterdir())
     assert len(pastas) == 1 and (pastas[0] / "dados_pesquisa.xlsx").exists()

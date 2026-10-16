@@ -81,6 +81,7 @@ def mensagem_de_erro(erro: Exception) -> str:
 
 class Tela(Quadro):
     passo = 0          # 0 = antes de começar; 1 a 4 = trilha do topo
+    retornavel = True  # o Voltar das estatísticas pode reabrir esta tela
     titulo = ""
     explicacao = ""
     ajuda = ""
@@ -264,6 +265,14 @@ class TelaOrigem(Tela):
              "Se você vai digitar os dados, ou copiar de outro lugar, escolha Digitar ou colar.")
 
     def montar(self):
+        if self.app.refazer:
+            aviso = Caixa(self, "Pessoas com erro no último cadastro: "
+                                f"{len(self.app.refazer['chaves'])}. Se já corrigiu o problema, "
+                                "você pode refazer só essas pessoas.", tipo="atencao")
+            aviso.pack(fill="x", pady=(0, 10))
+            Botao(self, "Refazer as que deram erro", self.app.refazer_erros,
+                  variante="principal").pack(anchor="w", pady=(0, 22))
+
         grade = Quadro(self)
         grade.pack(fill="x")
         grade.columnconfigure((0, 1), weight=1, uniform="cartao")
@@ -617,8 +626,7 @@ class TelaColunas(Tela):
             modo="planilha",
             planilha=self.planilha,
             colunas=self.colunas(),
-            primeira=self._ler_inteiro(self.primeira),
-            final=self._ler_inteiro(self.final),
+            linhas=range(self._ler_inteiro(self.primeira), self._ler_inteiro(self.final) + 1),
             coluna_resultado=self.resultado.get(),
             manual=self.conferencia.valor == "manual",
         )
@@ -796,16 +804,24 @@ class RelatorJanela(Relator):
 
 class TelaCadastro(Tela):
     passo = 3
+    retornavel = False  # reabrir esta tela recomeçaria o cadastro
     titulo = "Cadastrando…"
     explicacao = ("Não feche esta janela nem o Google Chrome. Você pode acompanhar o que o "
                   "programa está fazendo pela janela do Chrome.")
     ajuda = ("O programa está cadastrando as pessoas no SIGEF, uma de cada vez. Espere até "
              "aparecer a tela de resultado.\n\nSe precisar interromper, clique em Parar o "
-             "cadastro: o programa termina a pessoa atual e para.")
+             "cadastro: o programa termina a pessoa atual e para.\n\nQuando todas as pessoas "
+             "forem feitas, as que deram erro ficam guardadas e você pode refazer só elas "
+             "com o botão Refazer as que deram erro.")
 
-    def montar(self, modo, manual, **parametros):
+    def montar(self, modo, manual, refazendo=False, **parametros):
         self.modo = modo
+        self.manual = manual
+        self.parametros = parametros
         self.resultados = []
+
+        if refazendo:
+            self.rotulo_titulo.configure(text="Refazendo as pessoas que deram erro…")
 
         self.progresso_texto = Texto(self, "Preparando…", fonte="subtitulo")
         self.progresso_texto.pack(fill="x")
@@ -824,17 +840,17 @@ class TelaCadastro(Tela):
         self.sessao = estatisticas.Sessao(modo, "manual" if manual else "auto")
         navegador = self.trabalhador.navegador
         perguntar = self._perguntar if manual else None
+        p = parametros
 
         def tarefa():
             try:
                 if modo == "planilha":
-                    return executar_planilha(
-                        navegador, parametros["planilha"], parametros["colunas"],
-                        parametros["primeira"], parametros["final"],
-                        parametros["coluna_resultado"], self.relator, perguntar, self.sessao)
+                    return executar_planilha(navegador, p["planilha"], p["colunas"], p["linhas"],
+                                             p["coluna_resultado"], self.relator, perguntar,
+                                             self.sessao)
 
-                return executar_lotes(navegador, parametros["lotes"], self.relator, perguntar,
-                                      self.sessao)
+                return executar_lotes(navegador, p["lotes"], self.relator, perguntar,
+                                      self.sessao, p.get("numeros"))
             finally:
                 # Gravado aqui (no trabalhador) para a rede lenta não travar a janela
                 estatisticas.salvar_sessao(self.sessao)
@@ -843,6 +859,7 @@ class TelaCadastro(Tela):
         self.trabalhador.fazer(tarefa, ok=self.terminou, falha=self.falhou)
 
     def barra(self, esquerda, direita):
+        self.direita = direita
         self.botao_parar = Botao(direita, "Parar o cadastro", self.parar, variante="perigo")
         self.botao_parar.pack(side="right")
 
@@ -880,14 +897,73 @@ class TelaCadastro(Tela):
         self.botao_parar.configure(text="Parando depois desta pessoa…")
         self.botao_parar.ativar(False)
 
+    def _guardar_erros(self, resumo) -> None:
+        """Guarda na memória (só nesta sessão do programa) o que deu erro, para refazer."""
+        if not resumo.falhas:
+            self.app.refazer = None
+            return
+
+        chaves = [chave for chave, _lote in resumo.falhas]
+        dados = {"modo": self.modo, "manual": self.manual, "refazendo": True, "chaves": chaves}
+
+        if self.modo == "planilha":
+            # Só as linhas: elas são lidas de novo, já com o que for corrigido na planilha
+            dados.update(planilha=self.parametros["planilha"],
+                         colunas=self.parametros["colunas"],
+                         coluna_resultado=self.parametros["coluna_resultado"], linhas=chaves)
+        else:
+            dados.update(lotes=[lote for _chave, lote in resumo.falhas], numeros=chaves)
+
+        self.app.refazer = dados
+
     def terminou(self, resumo):
         self.app.cadastrando = False
+        interrompido = self.relator.parar.is_set()
 
         if self.modo == "lotes":
             self.app.lotes.clear()
 
-        self.app.ir(TelaResultado, resumo=resumo, resultados=self.resultados, modo=self.modo,
-                    interrompido=self.relator.parar.is_set(), sessao=self.sessao)
+        # Só depois de passar por todos os itens: parado no meio, a memória fica como estava
+        if not interrompido:
+            self._guardar_erros(resumo)
+
+        resultado = dict(resumo=resumo, resultados=self.resultados, modo=self.modo,
+                         interrompido=interrompido, sessao=self.sessao)
+
+        if interrompido or not resumo.falhas:
+            self.app.ir(TelaResultado, **resultado)
+            return
+
+        self._oferecer_refazer(resumo, resultado)
+
+    def _oferecer_refazer(self, resumo, resultado):
+        """Fim com erros: fica no passo 3 e pergunta se quer refazer só os que falharam."""
+        self.app.retorno = (TelaResultado, resultado)  # estatísticas voltam ao resultado
+        quantidade = len(resumo.falhas)
+        processados = sum(resumo.contagem.values())
+
+        self.rotulo_titulo.configure(text="Cadastro terminado")
+        self.progresso_texto.configure(
+            text=f"Pessoas feitas: {processados}   ·   Com problema: {quantidade}")
+        self.progresso.configure(value=self.progresso["maximum"])
+
+        if self.modo == "planilha":
+            dica = (" Se o problema era nos dados, corrija na planilha antes: as linhas são "
+                    "lidas de novo.")
+        elif self.manual:
+            dica = " Na conferência, use Corrigir os dados se algo estiver errado."
+        else:
+            dica = ""
+
+        self.agora.mudar("As pessoas com erro (marcadas com ✖ na lista) ficaram guardadas. "
+                         f"Clique em Refazer as que deram erro para tentar de novo só com "
+                         f"elas.{dica}", "erro")
+
+        self.botao_parar.destroy()
+        Botao(self.direita, f"Refazer as que deram erro ({quantidade})",
+              self.app.refazer_erros, variante="principal").pack(side="right")
+        Botao(self.direita, "Ver o resultado", lambda: self.app.ir(TelaResultado, **resultado)
+              ).pack(side="right", padx=(0, 16))
 
     def falhou(self, erro):
         self.app.cadastrando = False
@@ -908,11 +984,14 @@ class TelaResultado(Tela):
     passo = 4
     titulo = "Cadastro concluído"
     ajuda = ("Esta tela mostra o que aconteceu com cada pessoa. As pessoas com problema estão "
-             "marcadas com ✖ e o motivo aparece ao lado.\n\nCorrija os dados dessas pessoas e "
-             "faça um novo cadastro só com elas.\n\nO registro completo fica na pasta de "
+             "marcadas com ✖ e o motivo aparece ao lado.\n\nAs pessoas com problema ficam "
+             "guardadas enquanto o programa estiver aberto: clique em Refazer as que deram "
+             "erro para tentar de novo só com elas.\n\nO registro completo fica na pasta de "
              "registros (botão no canto inferior esquerdo).")
 
     def montar(self, resumo, resultados, modo, interrompido, sessao=None):
+        self.interrompido = interrompido
+
         if interrompido:
             self.rotulo_titulo.configure(text="Cadastro interrompido")
 
@@ -942,8 +1021,11 @@ class TelaResultado(Tela):
         if contagem["ERRO"]:
             onde = (" e na coluna do resultado da planilha, começando com ERRO"
                     if modo == "planilha" else "")
+            refazer = (" Corrija os dados se precisar e clique em Refazer as que deram erro."
+                       if self._pode_refazer() else
+                       " Corrija os dados e cadastre de novo só essas pessoas.")
             Caixa(self, f"Algumas pessoas tiveram problema. Elas estão marcadas com ✖ na lista "
-                        f"abaixo{onde}. Corrija os dados e cadastre de novo só essas pessoas.",
+                        f"abaixo{onde}.{refazer}",
                   tipo="erro").pack(fill="x", pady=(0, 14))
         elif not interrompido:
             Caixa(self, "Todas as pessoas foram feitas sem problema.", tipo="ok").pack(
@@ -956,18 +1038,31 @@ class TelaResultado(Tela):
         for linha, status in resultados:
             tabela.inserir(str(linha[0]), linha, status)
 
+    def _pode_refazer(self) -> bool:
+        """Só depois de um cadastro que passou por todas as pessoas."""
+        return bool(self.app.refazer) and not self.interrompido
+
     def barra(self, esquerda, direita):
         Botao(esquerda, "Abrir a pasta de registros", lambda: e.abrir_pasta(PASTA_LOGS),
               variante="discreto").pack(side="left")
-        Botao(direita, "Fazer outro cadastro", lambda: self.app.ir(TelaOrigem),
-              variante="principal").pack(side="right")
-        Botao(direita, "Fechar o programa", self.app.sair).pack(side="right", padx=(0, 16))
 
+        if self._pode_refazer():
+            quantidade = len(self.app.refazer["chaves"])
+            Botao(direita, f"Refazer as que deram erro ({quantidade})", self.app.refazer_erros,
+                  variante="principal").pack(side="right")
+            Botao(direita, "Fazer outro cadastro", lambda: self.app.ir(TelaOrigem)).pack(
+                side="right", padx=(0, 16))
+        else:
+            Botao(direita, "Fazer outro cadastro", lambda: self.app.ir(TelaOrigem),
+                  variante="principal").pack(side="right")
+
+        Botao(direita, "Fechar o programa", self.app.sair).pack(side="right", padx=(0, 16))
 
 
 # ============================================================== estatísticas
 
 class TelaEstatisticas(Tela):
+    retornavel = False  # o Voltar daqui leva para a tela anterior
     titulo = "Estatísticas"
     explicacao = ("Quanto tempo a automação economizou, somando todas as sessões. Esses dados "
                   "servem para a pesquisa de implantação.")

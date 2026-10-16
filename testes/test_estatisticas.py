@@ -132,7 +132,8 @@ def test_planilha_marca_validacao(navegador):
     planilha = Planilha(Pasta("p.xlsx", [aba]), aba)
     colunas, primeira, _ = planilha.colunas_sugeridas()
     sessao = est.Sessao("planilha", "auto")
-    executar_planilha(navegador, planilha, colunas, primeira, 2, "J", Relator(), None, sessao)
+    executar_planilha(navegador, planilha, colunas, range(primeira, 3), "J", Relator(), None,
+                      sessao)
     assert [(i.status, i.caminho) for i in sessao.itens] == [("ERRO", "validacao")]
 
 

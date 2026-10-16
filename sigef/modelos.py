@@ -14,10 +14,10 @@ ROTULOS = {
     "conta": "Conta",
 }
 
-SOMENTE_DIGITOS = ("cpf", "agencia", "conta")
-
-# Agência e conta podem terminar em "X" (dígito verificador de alguns bancos)
-CAMPOS_COM_X = ("agencia", "conta")
+# Agência e conta vão ao SIGEF como estão escritas: letras, números, "-" e "."
+# (o dígito verificador pode vir separado por traço e pode ser letra, como X ou P)
+CAMPOS_BANCARIOS = ("agencia", "conta")
+FORA_DO_BANCARIO = re.compile(r"[^0-9A-Z.\-]")
 
 TAMANHO_CPF = 11
 
@@ -81,18 +81,17 @@ def limpar(campo: str, valor: str) -> str:
     if campo == "banco":
         return resolver_banco(valor)
 
-    if campo not in SOMENTE_DIGITOS:
-        return valor
+    if campo in CAMPOS_BANCARIOS:
+        # Só saem espaços e símbolos estranhos; letras (em maiúscula), números, "-" e "." ficam
+        return FORA_DO_BANCARIO.sub("", valor.upper())
 
-    if campo in CAMPOS_COM_X:
-        # Pontos, traços e espaços saem; o "X" fica (em maiúscula) junto dos números
-        valor = re.sub(r"[^0-9X]", "", valor.upper())
-        return valor if any(c.isdigit() for c in valor) else ""
+    if campo != "cpf":
+        return valor
 
     valor = re.sub(r"\D", "", valor)
 
     # O Excel come o zero à esquerda do CPF
-    if campo == "cpf" and 0 < len(valor) < TAMANHO_CPF:
+    if 0 < len(valor) < TAMANHO_CPF:
         valor = valor.zfill(TAMANHO_CPF)
 
     return valor

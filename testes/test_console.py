@@ -31,3 +31,23 @@ def test_preparar_navegador_confirma_sessao(navegador, monkeypatch, capsys):
     _respostas(monkeypatch, "")
     console.preparar_navegador(navegador)
     assert "Sessão confirmada." in capsys.readouterr().out
+
+
+def test_terminal_oferece_refazer_os_erros(navegador, servidor, monkeypatch, capsys):
+    servidor.estado.cpfs_invalidos.add("98765432100")
+    _respostas(
+        monkeypatch,
+        "1",
+        "98765432100;PEDRO REFAZ;001;77;88-9",
+        "",
+        "",
+        "1",                                  # cadastrar direto
+        "s",                                  # refazer o que deu erro
+        "n",                                  # não refazer de novo
+    )
+    try:
+        console.modo_lotes(navegador)
+    finally:
+        servidor.estado.cpfs_invalidos.discard("98765432100")
+
+    assert capsys.readouterr().out.count("Erros:          1") == 2  # 1ª vez e a repetição

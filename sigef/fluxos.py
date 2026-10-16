@@ -3,12 +3,15 @@
 Independe da interface: o terminal e a janela acompanham a execução por meio de
 um `Relator`, e a conferência manual chega pela função `perguntar`. Quando
 recebe uma `Sessao`, anota o tempo de cada item para as estatísticas.
+
+O `Resumo` guarda em memória os itens que deram erro (`falhas`), para que a
+interface possa oferecer refazer só esses itens ao fim da execução.
 """
 
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Iterable, Optional, Sequence
 
 from .automacao import (
     Confirmador,
@@ -52,9 +55,13 @@ class Relator:
 @dataclass
 class Resumo:
     contagem: dict = field(default_factory=lambda: dict.fromkeys(PREFIXO, 0))
+    falhas: list = field(default_factory=list)  # [(chave, Lote)] dos itens com ERRO
 
-    def registrar(self, status: str) -> None:
+    def registrar(self, chave: int, lote: Lote, status: str) -> None:
         self.contagem[status] += 1
+
+        if status == "ERRO":
+            self.falhas.append((chave, lote))
 
     def __str__(self) -> str:
         c = self.contagem
@@ -129,22 +136,27 @@ def _executar(navegador: Navegador, lote: Lote, confirmador: Confirmador) -> tup
             fechar_popups(navegador.context, page)
 
 
-def executar_lotes(navegador: Navegador, lotes: list, relator: Relator,
+def executar_lotes(navegador: Navegador, lotes: Sequence[Lote], relator: Relator,
                    perguntar: Optional[Perguntar] = None,
-                   sessao: Optional[Sessao] = None) -> Resumo:
-    """Modo lote: dados digitados, colados ou lidos de um arquivo."""
+                   sessao: Optional[Sessao] = None,
+                   numeros: Optional[Sequence[int]] = None) -> Resumo:
+    """Modo lote: dados digitados, colados ou lidos de um arquivo.
+
+    `numeros` mantém a numeração original ao refazer só os itens com erro.
+    """
     navegador.garantir()
     resumo, total = Resumo(), len(lotes)
+    numeros = numeros or range(1, total + 1)
 
     with _encerrando(sessao, relator):
-        for numero, lote in enumerate(lotes, 1):
+        for atual, (numero, lote) in enumerate(zip(numeros, lotes), 1):
             if relator.cancelado():
                 break
 
             medicao = _Medicao()
 
             while True:
-                relator.inicio(numero, lote, numero, total)
+                relator.inicio(numero, lote, atual, total)
                 confirmador = Confirmador(perguntar)
 
                 try:
@@ -163,7 +175,7 @@ def executar_lotes(navegador: Navegador, lotes: list, relator: Relator,
                 break
 
             medicao.registrar(sessao, status, mensagem)
-            resumo.registrar(status)
+            resumo.registrar(numero, lote, status)
             relator.resultado(numero, lote, status, PREFIXO[status] + mensagem)
 
     logger.info("Resumo: %s", resumo)
@@ -171,15 +183,21 @@ def executar_lotes(navegador: Navegador, lotes: list, relator: Relator,
 
 
 def executar_planilha(navegador: Navegador, planilha: Planilha, colunas: dict,
-                      primeira: int, final: int, coluna_resultado: str,
+                      linhas: Iterable[int], coluna_resultado: str,
                       relator: Relator, perguntar: Optional[Perguntar] = None,
                       sessao: Optional[Sessao] = None) -> Resumo:
-    """Modo planilha: lê o Excel e devolve o diagnóstico em cada linha."""
+    """Modo planilha: lê o Excel e devolve o diagnóstico em cada linha.
+
+    `linhas` é o intervalo escolhido (`range(primeira, final + 1)`) ou só as
+    linhas que deram erro, quando a pessoa pede para refazê-las. Cada linha é
+    lida de novo do Excel, então correções feitas na planilha são aproveitadas.
+    """
     navegador.garantir()
-    resumo, total = Resumo(), final - primeira + 1
+    linhas = list(linhas)
+    resumo, total = Resumo(), len(linhas)
 
     with _encerrando(sessao, relator):
-        for linha in range(primeira, final + 1):
+        for atual, linha in enumerate(linhas, 1):
             if relator.cancelado():
                 break
 
@@ -190,7 +208,7 @@ def executar_planilha(navegador: Navegador, planilha: Planilha, colunas: dict,
             if len(faltando) == len(ROTULOS) and not banco_bruto:  # linha vazia
                 continue
 
-            relator.inicio(linha, lote, linha - primeira + 1, total)
+            relator.inicio(linha, lote, atual, total)
             caminho = VALIDACAO
 
             if banco_bruto and not lote.banco:
@@ -213,7 +231,7 @@ def executar_planilha(navegador: Navegador, planilha: Planilha, colunas: dict,
             gravacao = planilha.gravar(linha, texto, coluna_resultado)
 
             medicao.registrar(sessao, status, mensagem, caminho)
-            resumo.registrar(status)
+            resumo.registrar(linha, lote, status)
             relator.resultado(linha, lote, status, texto)
 
             for aviso in gravacao.avisos:

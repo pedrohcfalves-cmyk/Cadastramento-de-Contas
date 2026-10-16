@@ -8,7 +8,7 @@ from ..log import configurar_log, garantir_saidas, logger
 from . import dialogos
 from . import estilo as e
 from .componentes import Barras, Botao, Quadro, Rolagem, Texto
-from .telas import PASSOS, TelaEstatisticas, TelaInicio
+from .telas import PASSOS, TelaCadastro, TelaEstatisticas, TelaInicio
 from .trabalhador import Trabalhador
 
 NOME = "Cadastro de Credores no SIGEF"
@@ -83,6 +83,8 @@ class App:
         self.cadastrando = False
         self.lotes = []           # lista digitada (mantida ao voltar de tela)
         self.conferencia = "auto"
+        self.refazer = None       # itens com erro do último cadastro (só na memória)
+        self.retorno = (TelaInicio, {})  # para onde o Voltar das estatísticas leva
 
         self._montar_topo()
         self.trilha = Trilha(raiz, raiz.tema)
@@ -162,8 +164,8 @@ class App:
         esquerda.pack(side="left")
         direita.pack(side="right")
 
-        if classe is not TelaEstatisticas:
-            self._retorno = (classe, dados)  # para onde o Voltar das estatísticas leva
+        if classe.retornavel:
+            self.retorno = (classe, dados)
 
         self.tela = classe(self, **dados)
         self.tela.pack(fill="both", expand=True)
@@ -179,8 +181,14 @@ class App:
         if not isinstance(self.tela, TelaEstatisticas):
             self.ir(TelaEstatisticas)
 
+    def refazer_erros(self) -> None:
+        """Cadastra de novo só as pessoas que deram erro no último cadastro completo."""
+        if self.refazer:
+            dados = {chave: valor for chave, valor in self.refazer.items() if chave != "chaves"}
+            self.ir(TelaCadastro, **dados)
+
     def voltar(self) -> None:
-        classe, dados = getattr(self, "_retorno", (TelaInicio, {}))
+        classe, dados = self.retorno
         self.ir(classe, **dados)
 
     def mudar_letra(self, passo: int) -> None:

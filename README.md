@@ -35,6 +35,11 @@ fontes já estão dentro dele.
    programa fazer tudo direto, e clique em **Começar o cadastro**.
 6. Ao final, a tela de resultado mostra quantas pessoas foram cadastradas,
    quantas já tinham cadastro e quais tiveram problema (com o motivo).
+7. Se alguma pessoa deu erro, o passo 3 oferece **Refazer as que deram erro**:
+   o programa tenta de novo só com elas. No modo planilha, corrija a planilha
+   antes — as linhas são lidas de novo. As pessoas com erro ficam guardadas
+   enquanto o programa estiver aberto (o botão também aparece no resultado e
+   no passo 2).
 
 Recursos pensados para facilitar o uso:
 
@@ -183,6 +188,11 @@ Três formas de informar os dados:
 
 Cada linha é independente: os cinco campos pertencem sempre à mesma pessoa.
 
+**Agência e conta** são enviadas ao SIGEF como estão escritas: aceitam qualquer
+letra, número, `-` e `.` (ex.: `1234-5`, `12.345-X`, `0012345-P`). Letras viram
+maiúsculas; espaços e outros símbolos são descartados. O CPF continua só com
+números.
+
 ### Modo planilha
 
 Lê uma pasta de trabalho **já aberta no Excel** (ou abre pelo caminho) e
@@ -207,6 +217,19 @@ Diagnóstico gravado:
 | Falha | `ERRO: ...` |
 
 Filtrando a coluna por `ERRO:` aparecem apenas as linhas que exigem atenção.
+
+### Refazer os itens com erro
+
+Quando a execução passa por **todos** os itens (sem ser parada no meio), os
+que deram erro ficam guardados na memória daquela sessão do programa:
+
+- no aplicativo, o passo 3 mostra **Refazer as que deram erro (N)** e
+  **Ver o resultado**; o botão também aparece no resultado e no passo 2;
+- no terminal, a pergunta "Refazer só esses agora?" aparece ao fim;
+- no modo planilha, só as linhas com erro são relidas do Excel (pegando as
+  correções) e o diagnóstico é regravado nelas;
+- cada repetição guarda só o que voltou a falhar. Nada disso é gravado em
+  disco: ao fechar o programa, a lista some.
 
 ### Confirmação manual
 
@@ -242,7 +265,10 @@ em maiúsculas) ao dicionário `BANCOS` e o nome de exibição a `NOMES`, em
 
 ## Tolerância a falhas
 
-- Timeout de 10 s para localizar qualquer elemento.
+- Timeout de 10 s para localizar qualquer elemento e de 30 s para a tela
+  carregar; 60 s para o aviso de retorno do botão **Incluir** do credor.
+- Troca de telas só começa depois que a tela anterior assenta; se o SIGEF
+  disparar um postback no meio, a navegação é repetida (até 3 vezes).
 - Falha em uma linha não interrompe as demais: o motivo é registrado e a
   automação recomeça na linha seguinte, a partir da tela inicial.
 - Se o navegador for fechado no meio, o cadastro para (em vez de marcar erro em
@@ -272,7 +298,7 @@ maiores) e salva capturas de cada tela.
 Cadastrar.py           entrada do modo terminal
 CadastrarApp.pyw       entrada do aplicativo (janelas)
 sigef/
-  config.py            URLs, timeouts, colunas padrão, navegadores aceitos
+  config.py            URLs, timeouts, âncoras de tela, colunas, navegadores
   bancos.py            tabela e conversão nome <-> código
   modelos.py           Lote, validação, CPF e leitura de listas
   navegador.py         Chrome/Edge em depuração, conexão e login no SIGEF
